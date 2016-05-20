@@ -221,6 +221,15 @@ struct tstamp {
 	uint32_t nsec;
 };
 
+/* @Yikai
+ * packet buffer node in FIFO queue
+ */
+typedef struct node{
+	char *pkt;
+	int len;
+	struct node *next;	
+} pkt_list_node_t;
+
 /*
  * global arguments for all threads
  */
@@ -307,14 +316,6 @@ struct targ {
 	void *frame;
 };
 
-/* @Yikai
- * packet buffer node in FIFO queue
- */
-typedef struct node{
-	char *pkt;
-	int len;
-	struct node *next;	
-} pkt_list_node_t;
 
 /*
  * extract the extremes from a range of ipv4 addresses.
@@ -842,7 +843,7 @@ set_vnet_hdr_len(struct glob_arg *g)
  * an interrupt when done.
  */
 static int
-send_packets(struct netmap_ring *ring, struct glob_arg *g, u_int count, int options)
+send_packets(struct netmap_ring *ring, struct glob_arg *g, u_int count)
 {
 	u_int n, sent, cur = ring->cur;
 
@@ -851,10 +852,9 @@ send_packets(struct netmap_ring *ring, struct glob_arg *g, u_int count, int opti
 		count = n;
 
 	pkt_list_node_t *head = g->head;
-	pkt_list_node_t *tail = g->tail;
 	pkt_list_node_t *node = g->head;
 
-	for (sent = 0; head!=NULL, sent < count; sent++) {
+	for (sent = 0; head!=NULL&&sent < count; sent++) {
 		struct netmap_slot *slot = &ring->slot[cur];
 		char *p = NETMAP_BUF(ring, slot->buf_idx);
 		/*
@@ -895,12 +895,14 @@ send_packets(struct netmap_ring *ring, struct glob_arg *g, u_int count, int opti
 		free(node->pkt);
 		free(node);
 		node = head;
-		if(head==NULL)
-			tail = NULL;
+		if(head==NULL){
+			g->tail = NULL;
+		}
 
 		cur = nm_ring_next(ring, cur);
 	}
 	ring->head = ring->cur = cur;
+	g->head = head;
 
 	return (sent);
 }
@@ -1280,7 +1282,7 @@ sender_body(void *data)
 					limit = ((limit + frags - 1) / frags) * frags;
 
 				pthread_rwlock_wrlock(&(targ->g->rwlock));
-				m = send_packets(txring, targ->g, limit, options);
+				m = send_packets(txring, targ->g, limit);
 				pthread_rwlock_unlock(&(targ->g->rwlock));
 				ND("limit %d tail %d frags %d m %d",
 					limit, txring->tail, frags, m);
