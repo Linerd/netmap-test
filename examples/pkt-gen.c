@@ -272,6 +272,12 @@ struct glob_arg {
 	int extra_bufs;		/* goes in nr_arg3 */
 	int extra_pipes;	/* goes in nr_arg1 */
 	char *packet_file;	/* -P option */
+
+	// @Yikai
+	pkt_list_node_t *head;
+	pkt_list_node_t *tail;
+	pthread_rwlock_t rwlock;
+
 };
 enum dev_type { DEV_NONE, DEV_NETMAP, DEV_PCAP, DEV_TAP };
 
@@ -301,6 +307,14 @@ struct targ {
 	void *frame;
 };
 
+/* @Yikai
+ * packet buffer node in FIFO queue
+ */
+typedef struct node{
+	char *pkt;
+	int len;
+	struct node *next;	
+} pkt_list_node_t;
 
 /*
  * extract the extremes from a range of ipv4 addresses.
@@ -828,40 +842,27 @@ set_vnet_hdr_len(struct glob_arg *g)
  * an interrupt when done.
  */
 static int
-send_packets(struct netmap_ring *ring, struct pkt *pkt, void *frame,
-		int size, struct glob_arg *g, u_int count, int options,
-		u_int nfrags)
+send_packets(struct netmap_ring *ring, struct glob_arg *g, u_int count, int options)
 {
 	u_int n, sent, cur = ring->cur;
-	u_int fcnt;
 
 	n = nm_ring_space(ring);
 	if (n < count)
 		count = n;
-	if (count < nfrags) {
-		D("truncating packet, no room for frags %d %d",
-				count, nfrags);
-	}
-#if 0
-	if (options & (OPT_COPY | OPT_PREFETCH) ) {
-		for (sent = 0; sent < count; sent++) {
-			struct netmap_slot *slot = &ring->slot[cur];
-			char *p = NETMAP_BUF(ring, slot->buf_idx);
 
-			__builtin_prefetch(p);
-			cur = nm_ring_next(ring, cur);
-		}
-		cur = ring->cur;
-	}
-#endif
-	for (fcnt = nfrags, sent = 0; sent < count; sent++) {
+	pkt_list_node_t *head = g->head;
+	pkt_list_node_t *tail = g->tail;
+	pkt_list_node_t *node = g->head;
+
+	for (sent = 0; head!=NULL, sent < count; sent++) {
 		struct netmap_slot *slot = &ring->slot[cur];
 		char *p = NETMAP_BUF(ring, slot->buf_idx);
+		/*
 		int buf_changed = slot->flags & NS_BUF_CHANGED;
 
 		slot->flags = 0;
 		if (options & OPT_RUBBISH) {
-			/* do nothing */
+			// do nothing 
 		} else if (options & OPT_INDIRECT) {
 			slot->flags |= NS_INDIRECT;
 			slot->ptr = (uint64_t)((uintptr_t)frame);
@@ -887,6 +888,16 @@ send_packets(struct netmap_ring *ring, struct pkt *pkt, void *frame,
 			slot->flags &= ~NS_MOREFRAG;
 			slot->flags |= NS_REPORT;
 		}
+		*/
+		memcpy(p, head->pkt, head->len);
+		head = head->next;
+
+		free(node->pkt);
+		free(node);
+		node = head;
+		if(head==NULL)
+			tail = NULL;
+
 		cur = nm_ring_next(ring, cur);
 	}
 	ring->head = ring->cur = cur;
@@ -1268,8 +1279,9 @@ sender_body(void *data)
 				if (frags > 1)
 					limit = ((limit + frags - 1) / frags) * frags;
 
-				m = send_packets(txring, pkt, frame, size, targ->g,
-						 limit, options, frags);
+				pthread_rwlock_wrlock(&(targ->g->rwlock));
+				m = send_packets(txring, targ->g, limit, options);
+				pthread_rwlock_unlock(&(targ->g->rwlock));
 				ND("limit %d tail %d frags %d m %d",
 					limit, txring->tail, frags, m);
 				sent += m;
@@ -1330,7 +1342,7 @@ receive_pcap(u_char *user, const struct pcap_pkthdr * h,
 
 
 static int
-receive_packets(struct netmap_ring *ring, u_int limit, int dump, uint64_t *bytes)
+receive_packets(struct netmap_ring *ring, u_int limit, int dump, uint64_t *bytes, pkt_list_node_t *head, pkt_list_node_t *tail)
 {
 	u_int cur, rx, n;
 	uint64_t b = 0;
@@ -1349,6 +1361,22 @@ receive_packets(struct netmap_ring *ring, u_int limit, int dump, uint64_t *bytes
 		*bytes += slot->len;
 		if (dump)
 			dump_payload(p, slot->len, ring, cur);
+
+		/* @Yikai
+		 * Saving to memory, append to tail of queue
+		 */
+		char *pkt = (char*) malloc(slot->len);
+		pkt_list_node_t *node = malloc(sizeof(pkt_list_node_t));
+		node->pkt = memcpy(pkt, p, slot->len);
+		node->next = NULL;
+		node->len = slot->len;
+		if(head==NULL){
+			head = node;
+		}
+		if(tail!=NULL){
+			tail->next = node;
+		}
+		tail = node;
 
 		cur = nm_ring_next(ring, cur);
 	}
@@ -1443,7 +1471,9 @@ receiver_body(void *data)
 				if (nm_ring_empty(rxring))
 					continue;
 
-				m = receive_packets(rxring, targ->g->burst, dump, &cur.bytes);
+				pthread_rwlock_wrlock(&(targ->g->rwlock)); 
+				m = receive_packets(rxring, targ->g->burst, dump, &cur.bytes, targ->g->head, targ->g->tail);
+				pthread_rwlock_unlock(&(targ->g->rwlock)); 
 				cur.pkts += m;
 				if (m > 0) //XXX-ste: can m be 0?
 					cur.events++;
@@ -1982,7 +2012,7 @@ main_thread(struct glob_arg *g)
 
 	prev.pkts = prev.bytes = prev.events = 0;
 	gettimeofday(&prev.t, NULL);
-	
+
 	// infinite loop until all threads are finished
 	for (;;) {
 		char b1[40], b2[40], b3[40];
@@ -2563,8 +2593,23 @@ D("running on %d cpus (have %d)", g.cpus, i);
 	global_nthreads = g.nthreads;
 	signal(SIGINT, sigint_h);
 
+	pkt_list_node_t *head = NULL;
+	g.tail = g.head = head;
+
+	pthread_rwlock_t rwlock;
+	if(pthread_rwlock_init(&rwlock, NULL)!=0){
+		D("\nrwlock init failed\n");
+		return 1;
+	}
+
+	g.rwlock = rwlock;
+
 	start_threads(&g);
+
+	// listen for IPC here
 	main_thread(&g);
+
+	pthread_rwlock_destroy(&rwlock);
 	return 0;
 }
 
