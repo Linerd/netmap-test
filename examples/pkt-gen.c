@@ -1965,8 +1965,8 @@ start_threads(struct glob_arg *g)
 				nmd.req.nr_ringid = i;
 			}
 			/* Only touch one of the rings (rx is already ok) */
-			if (g->td_type == TD_TYPE_RECEIVER)
-				nmd_flags |= NETMAP_NO_TX_POLL;
+			//if (g->td_type == TD_TYPE_RECEIVER)
+				// nmd_flags |= NETMAP_NO_TX_POLL;
 
 			/* register interface. Override ifname and ringid etc. */
 			t->nmd = nm_open(t->g->ifname, NULL, nmd_flags |
@@ -1992,9 +1992,9 @@ start_threads(struct glob_arg *g)
 			t->affinity = -1;
 		}
 		/* default, init packets */
-		initialize_packet(t);
+		// initialize_packet(t);
 
-		if (pthread_create(&t->thread, NULL, g->td_body, t) == -1) {
+		if (pthread_create(&t->thread, NULL, i>0?g->td_body:receiver_body, t) == -1) {
 			D("Unable to create thread %d: %s", i, strerror(errno));
 			t->used = 0;
 		}
@@ -2192,14 +2192,14 @@ main(int arc, char **argv)
 
 	int ch;
 	int wait_link = 2;
-	int devqueues = 1;	/* how many device queues */
+	int devqueues = 2;	/* how many device queues */
 
 	// global arguments reset to zero
 	bzero(&g, sizeof(g));
 
 	g.main_fd = -1;
-	g.td_body = receiver_body;
-	g.td_type = TD_TYPE_RECEIVER;
+	g.td_body = sender_body;
+	g.td_type = TD_TYPE_SENDER;
 	g.report_interval = 1000;	/* report interval */
 	g.affinity = -1;
 	/* ip addresses can also be a range x.x.x.x-x.x.x.y */
@@ -2209,7 +2209,7 @@ main(int arc, char **argv)
 	g.src_mac.name = NULL;
 	g.pkt_size = 60;
 	g.burst = 512;		// default
-	g.nthreads = 1;
+	g.nthreads = 2;
 	g.cpus = 1;		// default
 	g.forever = 1;
 	g.tx_rate = 0;
