@@ -1994,7 +1994,7 @@ start_threads(struct glob_arg *g)
 		/* default, init packets */
 		// initialize_packet(t);
 
-		if (pthread_create(&t->thread, NULL, i>0?g->td_body:receiver_body, t) == -1) {
+		if (pthread_create(&t->thread, NULL, g->td_body, t) == -1) {
 			D("Unable to create thread %d: %s", i, strerror(errno));
 			t->used = 0;
 		}
