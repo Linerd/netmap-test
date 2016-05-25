@@ -1,6 +1,7 @@
 # For multiple programs using a single source file each,
 # we can just define 'progs' and create custom targets.
-PROGS	=	pkt-gen bridge vale-ctl pkt-gen-b bridge-b
+#PROGS	=	pkt-gen bridge vale-ctl pkt-gen-b bridge-b buffer
+PROGS	=	bridge vale-ctl pkt-gen-b bridge-b buffer
 #PROGS += pingd
 PROGS	+= testlock test_select testmmap vale-ctl
 MORE_PROGS = kern_test
@@ -25,14 +26,19 @@ all: $(PROGS)
 
 kern_test: testmod/kern_test.c
 
-pkt-gen: pkt-gen.o
-	$(CC) $(CFLAGS) -o pkt-gen pkt-gen.o $(LDFLAGS)
+buffer: buffer.o
+	$(CC) $(CFLAGS) -o buffer buffer.o $(LDFLAGS)
+buffer.o: buffer.c
+	$(CC) $(CFLAGS) -DBUSYWAIT -c buffer.c -o buffer.o
 
-pkt-gen-b: pkt-gen-b.o
-	$(CC) $(CFLAGS) -o pkt-gen-b pkt-gen-b.o $(LDFLAGS)
+#pkt-gen: pkt-gen.o
+	#$(CC) $(CFLAGS) -o pkt-gen pkt-gen.o $(LDFLAGS)
 
-pkt-gen-b.o: pkt-gen.c
-	$(CC) $(CFLAGS) -DBUSYWAIT -c pkt-gen.c -o pkt-gen-b.o
+#pkt-gen-b: pkt-gen-b.o
+	#$(CC) $(CFLAGS) -o pkt-gen-b pkt-gen-b.o $(LDFLAGS)
+
+#pkt-gen-b.o: pkt-gen.c
+	#$(CC) $(CFLAGS) -DBUSYWAIT -c pkt-gen.c -o pkt-gen-b.o
 
 bridge: bridge.o
 	$(CC) $(CFLAGS) -o bridge bridge.o

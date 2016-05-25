@@ -1,6 +1,7 @@
+#define NETMAP_WITH_LIBS
 #include <stdio.h>
 #include <net/netmap_user.h>
-
+#include <sys/poll.h>
 #include <pthread.h>
 
 /*
@@ -21,8 +22,9 @@ struct glob_arg {
 
 struct targ{
 	struct glob_arg *g;
-	bool attached;
+	int attached;
 	int id;
+	int fd;
 
 	/*
 	* 0 for rx; 
@@ -37,6 +39,11 @@ struct targ{
 
 };
 
+
+static struct targ *targs;
+static int global_nthreads;
+
+
 /* control-C handler */
 static void
 sigint_h(int sig)
@@ -46,7 +53,7 @@ sigint_h(int sig)
 	(void)sig;	/* UNUSED */
 	D("received control-C on thread %p", (void *)pthread_self());
 	for (i = 0; i < global_nthreads; i++) {
-		targs[i].attached = false;
+		targs[i].attached = 0;
 	}
 	signal(SIGINT, SIG_DFL);
 }
@@ -65,12 +72,12 @@ send_packets(struct netmap_ring *ring, u_int count, pkt_list_node_t **head, pkt_
 	for (sent = 0; head!=NULL&&sent < count; sent++) {
 		struct netmap_slot *slot = &ring->slot[cur];
 		char *p = NETMAP_BUF(ring, slot->buf_idx);
-		memcpy(p, *head->pkt, *head->len);
-		*head = *head->next;
+		memcpy(p, (*head)->pkt, (*head)->len);
+		*head = (*head)->next;
 
 		free(node->pkt);
 		free(node);
-		node = *head;
+		node = (*head);
 		if(*head==NULL)
 			*tail = NULL;
 
@@ -86,7 +93,7 @@ sender_body(void *data)
 	struct pollfd pfd = { .fd = targ->fd, .events = POLLOUT };
 	struct netmap_if *nifp;
 	struct netmap_ring *txring = NULL;
-	int i, n = targ->g->npackets / targ->g->nthreads;
+	int i;
 	
 	D("start: sender_body");
 
@@ -102,7 +109,7 @@ sender_body(void *data)
 		if (pfd.revents & POLLERR) {
 			D("poll error on %d ring %d-%d", pfd.fd,
 				targ->nmd->first_tx_ring, targ->nmd->last_tx_ring);
-			goto quit;
+			break;
 		}
 		/*
 		 * scan our queues and send on those with room
@@ -141,7 +148,6 @@ static void
 receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, pkt_list_node_t **tail)
 {
 	u_int cur, rx, n;
-	uint64_t b = 0;
 
 	cur = ring->cur;
 	n = nm_ring_space(ring);
@@ -163,7 +169,7 @@ receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, p
 			*head = node;
 		}
 		if(*tail!=NULL){
-			*tail->next = node;
+			(*tail)->next = node;
 		}
 		*tail = node;
 
@@ -184,7 +190,7 @@ receiver_body(void *data)
 	D("reading from %s",
 		targ->ifname);
 	/* unbounded wait for the first packet. */
-	for (;!targ->cancel;) {
+	for (;targ->attached;) {
 		i = poll(&pfd, 1, 1000);
 		if (i > 0 && !(pfd.revents & POLLERR))
 			break;
@@ -305,10 +311,6 @@ receiver_body(void *data)
 // 	}
 // }
 
-
-static struct targ *targs;
-static int global_nthreads;
-
 int
 main(int arc, char **argv){
 	
@@ -318,15 +320,15 @@ main(int arc, char **argv){
 	char ifname[2][20];
 
 	while ( ( ch = getopt(arc, argv, 
-		"i:b") ) != -1) {
+		"i:I:b") ) != -1) {
 		switch(ch) {
-			case 'i1':
+			case 'i':
 				D("interface1 is %s", optarg);
-				ifname[0] = optarg;
+				strcpy(ifname[0], optarg );
 				break;
-			case 'i2':
+			case 'I':
 				D("interface2 is %s", optarg);
-				ifname[1] = optarg;
+				strcpy(ifname[1], optarg) ;
 				break;
 			case 'b':
 				g.burst = atoi(optarg);
@@ -361,22 +363,24 @@ main(int arc, char **argv){
 	for(i=0;i<2;i++){
 		struct targ *t = &targs[i];
 		bzero(t, sizeof(*t));
-		t->g = g;
+		t->g = &g;
+		t->attached = 1;
 
 		struct nmreq nmr;
 
 		bzero(&nmr, sizeof(nmr));
 
-		nmr.nr_flags |= NR_ACCEPT_VNET_HRD;
+		//nmr.nr_flags |= NR_ACCEPT_VNET_HRD;
 
-		struct nm_desc nmd = nm_open(ifname[i], &nmr, 0, NULL);
+		struct nm_desc *nmd = nm_open(ifname[i], &nmr, 0, NULL);
 		if(nmd == NULL){
-			D("Unable to open %s: %s", ifname, strerror(errno));
+			D("Unable to open %s: %s", ifname[i], strerror(errno));
 			exit(0);
 		}
-		t->nmd = &nmd;
-		t->ifname = ifname[i];
-		nmd.self = &nmd;
+		t->nmd = nmd;
+		t->fd = t->nmd->fd;
+		strcpy(t->ifname, ifname[i]);
+		nmd->self = nmd;
 		t->id = i;
 
 		D("Wait %d secs for phy reset", 2);
@@ -387,4 +391,5 @@ main(int arc, char **argv){
 			D("Unable to create thread %d: %s", i, strerror(errno));
 		}
 	}
+	return 0;
 }
