@@ -66,10 +66,11 @@ send_packets(struct netmap_ring *ring, u_int count, pkt_list_node_t **head, pkt_
 	n = nm_ring_space(ring);
 	if (n < count)
 		count = n;
+	D("Sending packets: %d", count);
 
 	pkt_list_node_t *node = *head;
 
-	for (sent = 0; head!=NULL&&sent < count; sent++) {
+	for (sent = 0; (*head)!=NULL&&sent < count; sent++) {
 		struct netmap_slot *slot = &ring->slot[cur];
 		char *p = NETMAP_BUF(ring, slot->buf_idx);
 		memcpy(p, (*head)->pkt, (*head)->len);
@@ -83,6 +84,7 @@ send_packets(struct netmap_ring *ring, u_int count, pkt_list_node_t **head, pkt_
 
 		cur = nm_ring_next(ring, cur);
 	}
+	D("Sent: %d", sent);
 	ring->head = ring->cur = cur;
 }
 
@@ -99,7 +101,7 @@ sender_body(void *data)
 
 	/* main loop.*/
 	nifp = targ->nmd->nifp;
-	while (targ->attached) {
+	while (targ->attached>0) {
 
 	/*
 	 * wait for available room in the send queue(s)
@@ -147,6 +149,7 @@ sender_body(void *data)
 static void
 receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, pkt_list_node_t **tail)
 {
+	D("Receiving packets");
 	u_int cur, rx, n;
 
 	cur = ring->cur;
@@ -175,6 +178,7 @@ receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, p
 
 		cur = nm_ring_next(ring, cur);
 	}
+	D("Received: %d", rx);
 	ring->head = ring->cur = cur;
 }
 
@@ -190,7 +194,7 @@ receiver_body(void *data)
 	D("reading from %s",
 		targ->ifname);
 	/* unbounded wait for the first packet. */
-	for (;targ->attached;) {
+	for (;targ->attached>0;) {
 		i = poll(&pfd, 1, 1000);
 		if (i > 0 && !(pfd.revents & POLLERR))
 			break;
@@ -200,7 +204,7 @@ receiver_body(void *data)
 	/* main loop, exit after 1s silence */
 	nifp = targ->nmd->nifp;
 
-	while (targ->attached) {
+	while (targ->attached>0) {
 
 		if( poll(&pfd, 1, 1000) <=0)
 			continue;
@@ -311,12 +315,35 @@ receiver_body(void *data)
 // 	}
 // }
 
+static void
+main_thread(){
+	int i, j;
+	for(;;){
+		//D("Mainthread looping...");
+		j = 0;
+		for(i=0;i<global_nthreads;i++){
+			if(targs[i].attached!=1){
+				j++;
+				pthread_join(targs[i].thread,NULL);
+				munmap(targs[i].nmd->mem, targs[i].nmd->req.nr_memsize);
+				close(targs[i].fd);
+			}
+		}
+		if(j==global_nthreads){
+			break;
+		}
+		sleep(2);
+	}
+	//D("Why do I end up here");
+}
+
 int
 main(int arc, char **argv){
 	
-	int i;
+	int i;//,j;
 	int ch;
 	struct glob_arg g;
+	g.burst = 512;
 	char ifname[2][20];
 
 	while ( ( ch = getopt(arc, argv, 
@@ -324,11 +351,11 @@ main(int arc, char **argv){
 		switch(ch) {
 			case 'i':
 				D("interface1 is %s", optarg);
-				strcpy(ifname[0], optarg );
+				sprintf(ifname[0], "netmap:%s", optarg );
 				break;
 			case 'I':
 				D("interface2 is %s", optarg);
-				strcpy(ifname[1], optarg) ;
+				sprintf(ifname[1], "netmap:%s", optarg );
 				break;
 			case 'b':
 				g.burst = atoi(optarg);
@@ -360,7 +387,7 @@ main(int arc, char **argv){
 
 	// struct nm_desc nmd = nm_open()
 
-	for(i=0;i<2;i++){
+	for(i=0;i<global_nthreads;i++){
 		struct targ *t = &targs[i];
 		bzero(t, sizeof(*t));
 		t->g = &g;
@@ -391,5 +418,7 @@ main(int arc, char **argv){
 			D("Unable to create thread %d: %s", i, strerror(errno));
 		}
 	}
+	main_thread(&g);
+	pthread_rwlock_destroy(&(g.rwlock));	
 	return 0;
 }
