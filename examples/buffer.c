@@ -58,34 +58,42 @@ sigint_h(int sig)
 	signal(SIGINT, SIG_DFL);
 }
 
-static void
+static int
 send_packets(struct netmap_ring *ring, u_int count, pkt_list_node_t **head, pkt_list_node_t **tail)
 {
-	u_int n, sent, cur = ring->cur;
+	u_int n, sent = ring->cur;
 
 	n = nm_ring_space(ring);
 	if (n < count)
 		count = n;
-	D("Sending packets: %d", count);
+	//D("Sending packets: %d", count);
 
 	pkt_list_node_t *node = *head;
 
 	for (sent = 0; (*head)!=NULL&&sent < count; sent++) {
-		struct netmap_slot *slot = &ring->slot[cur];
+		struct netmap_slot *slot = &ring->slot[ring->cur];
+		slot->len = (*head)->len;
 		char *p = NETMAP_BUF(ring, slot->buf_idx);
-		memcpy(p, (*head)->pkt, (*head)->len);
-		*head = (*head)->next;
+		if(nm_ring_empty(ring)){
+			D("-- ouch, cannot send");
+		}
+		else{
+			nm_pkt_copy((*head)->pkt, p, (*head)->len);
+			*head = (*head)->next;
 
-		free(node->pkt);
-		free(node);
-		node = (*head);
-		if(*head==NULL)
-			*tail = NULL;
-
-		cur = nm_ring_next(ring, cur);
+			ring->head = ring->cur = nm_ring_next(ring, ring->cur);
+			free(node->pkt);
+			free(node);
+			node = (*head);
+			if(*head==NULL)
+				*tail = NULL;
+		}
 	}
-	D("Sent: %d", sent);
-	ring->head = ring->cur = cur;
+	if(sent){
+		D("Sent: %d", sent);
+	}
+
+	return sent;
 }
 
 static void *
@@ -95,7 +103,7 @@ sender_body(void *data)
 	struct pollfd pfd = { .fd = targ->fd, .events = POLLOUT };
 	struct netmap_if *nifp;
 	struct netmap_ring *txring = NULL;
-	int i;
+	int i,m=0;
 	
 	D("start: sender_body");
 
@@ -123,23 +131,25 @@ sender_body(void *data)
 				continue;
 
 			pthread_rwlock_wrlock(&(targ->g->rwlock));
-			send_packets(txring, limit, &(targ->g->head), &(targ->g->tail));
+			m =	send_packets(txring, limit, &(targ->g->head), &(targ->g->tail));
 			pthread_rwlock_unlock(&(targ->g->rwlock));
 		}
-		/* flush any remaining packets */
-		D("flush tail %d head %d on thread %p",
-			txring->tail, txring->head,
-			(void *)pthread_self());
-		ioctl(pfd.fd, NIOCTXSYNC, NULL);
+		if(m){
+			/* flush any remaining packets */
+			D("flush tail %d head %d on thread %p",
+				txring->tail, txring->head,
+				(void *)pthread_self());
+			ioctl(pfd.fd, NIOCTXSYNC, NULL);
 
-		/* final part: wait all the TX queues to be empty. */
-		for (i = targ->nmd->first_tx_ring; i <= targ->nmd->last_tx_ring; i++) {
-			txring = NETMAP_TXRING(nifp, i);
-			while (nm_tx_pending(txring)) {
-				RD(5, "pending tx tail %d head %d on ring %d",
-					txring->tail, txring->head, i);
-				ioctl(pfd.fd, NIOCTXSYNC, NULL);
-				usleep(1); /* wait 1 tick */
+			/* final part: wait all the TX queues to be empty. */
+			for (i = targ->nmd->first_tx_ring; i <= targ->nmd->last_tx_ring; i++) {
+				txring = NETMAP_TXRING(nifp, i);
+				while (nm_tx_pending(txring)) {
+					RD(5, "pending tx tail %d head %d on ring %d",
+						txring->tail, txring->head, i);
+					ioctl(pfd.fd, NIOCTXSYNC, NULL);
+					usleep(1); /* wait 1 tick */
+				}
 			}
 		}
     } /* end DEV_NETMAP */
@@ -150,14 +160,13 @@ static void
 receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, pkt_list_node_t **tail)
 {
 	D("Receiving packets");
-	u_int cur, rx, n;
+	u_int rx, n;
 
-	cur = ring->cur;
 	n = nm_ring_space(ring);
 	if (n < limit)
 		limit = n;
 	for (rx = 0; rx < limit; rx++) {
-		struct netmap_slot *slot = &ring->slot[cur];
+		struct netmap_slot *slot = &ring->slot[ring->cur];
 		char *p = NETMAP_BUF(ring, slot->buf_idx);
 
 		/* 
@@ -166,6 +175,7 @@ receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, p
 		char *pkt = (char*) malloc(slot->len);
 		pkt_list_node_t *node = malloc(sizeof(pkt_list_node_t));
 		node->pkt = memcpy(pkt, p, slot->len);
+		//D("Packet_len: %d", slot->len);
 		node->next = NULL;
 		node->len = slot->len;
 		if(*head==NULL){
@@ -175,11 +185,9 @@ receive_packets(struct netmap_ring *ring, u_int limit, pkt_list_node_t **head, p
 			(*tail)->next = node;
 		}
 		*tail = node;
-
-		cur = nm_ring_next(ring, cur);
+		ring->head = ring->cur = nm_ring_next(ring, ring->cur);
 	}
 	D("Received: %d", rx);
-	ring->head = ring->cur = cur;
 }
 
 static void *
@@ -194,7 +202,7 @@ receiver_body(void *data)
 	D("reading from %s",
 		targ->ifname);
 	/* unbounded wait for the first packet. */
-	for (;targ->attached>0;) {
+	for (;targ->attached;) {
 		i = poll(&pfd, 1, 1000);
 		if (i > 0 && !(pfd.revents & POLLERR))
 			break;
@@ -204,7 +212,7 @@ receiver_body(void *data)
 	/* main loop, exit after 1s silence */
 	nifp = targ->nmd->nifp;
 
-	while (targ->attached>0) {
+	while (targ->attached) {
 
 		if( poll(&pfd, 1, 1000) <=0)
 			continue;
