@@ -293,7 +293,8 @@ main_thread(struct glob_arg *g){
 	for(;;){
 		// take user input here
 		printf("Enter the interface number and opt_code here: ");
-		scanf(" %d %d",&ifnum, &mode);
+		if(scanf("%d %d",&ifnum, &mode)<0)
+			D("Scanf error");
 		if(ifnum>0 && mode>0){
 			if(mode<10){
 				if(targs[ifnum].id!=ifnum){
