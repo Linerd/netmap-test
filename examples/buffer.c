@@ -383,20 +383,19 @@ main_thread(struct glob_arg *g){
 	unix_socket_close(listenfd);  
 	if(connfd<0){
 		printf("Error[%d] when accepting...\n",errno);
-		return 0;
+		return; 
 	}  
 	printf("Begin to recv/send...\n");
-	int i,n,size;
-	int ifnum, mode;
-	char rcvbuf[8];
+	int size;
+	int rcvbuf[2];
 
 	for(;;){
-		size = recv(connfd, rcvbuf, 8, 0);   
+		size = recv(connfd, (char*)rcvbuf, 8, 0);   
 		if(size>=0){
 		// rvbuf[size]='\0';
-			printf("Received Data[%d]:%c...%c\n",size,rcvbuf[0],rcvbuf[size-1]);
-			ifnum = *(int*)(&rcvbuf[0]);
-			mode = *(int*)(&rcvbuf[4]);
+			printf("Received Data[%d]:%d,%d\n",size,rcvbuf[0],rcvbuf[1]);
+			ifnum = rcvbuf[0];
+			mode = rcvbuf[1];
 		}
 		if(size==-1) {
 			printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 

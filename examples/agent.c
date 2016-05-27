@@ -59,20 +59,18 @@ main(void){
     }
     printf("Begin to recv/send...\n");
     int size;
-    char sndbuf[8];
-    int ifnum, mode;
+    int sndbuf[2];
     for(;;){
         //=========sending======================
         printf("Enter the interface and mode here: ");
-        if(scanf("%d %d",&ifnum, &mode)<0){
+        if(scanf("%d %d",&sndbuf[0], &sndbuf[1])<0){
             printf("Scanf error");
             return 0;
         }
         getchar();
-        sprintf(sndbuf,'%d%d',ifnum, mode);
-        size = send(connfd, sndbuf, 8, 0);
+        size = send(connfd, (char*)sndbuf, 8, 0);
       	if(size>=0){
-    		    printf("Data[%d] Sended:%c.\n",size,rvbuf[0]);
+    		    printf("Data[%d] Sended:%c.\n",size,sndbuf[0]);
       	}
     	  if(size==-1){
     	      printf("Error[%d] when Sending Data:%s.\n",errno,strerror(errno));	 
