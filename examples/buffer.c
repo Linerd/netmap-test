@@ -291,74 +291,6 @@ set_attach(int ifnum, int attach){
 	targs[ifnum].attached = attach;
 }
 
-static void
-main_thread(struct glob_arg *g){
-	int i, j;
-	int ifnum, mode;
-	int listenfd,connfd; 
-	listenfd = unix_socket_listen("pbs.buffer1");
-	if(listenfd<0){
-		printf("Error[%d] when listening...\n",errno);
-		return 0;
-	}
-	printf("Finished listening...\n",errno);
-	uid_t uid;
-	connfd = unix_socket_accept(listenfd, &uid);
-	unix_socket_close(listenfd);  
-	if(connfd<0){
-		printf("Error[%d] when accepting...\n",errno);
-		return 0;
-	}  
-	printf("Begin to recv/send...\n");
-	int i,n,size;
-	int ifnum, mode;
-	char rcvbuf[8];
-
-	for(;;){
-		size = recv(connfd, rcvbuf, 8, 0);   
-		if(size>=0){
-		// rvbuf[size]='\0';
-			printf("Received Data[%d]:%c...%c\n",size,rcvbuf[0],rcvbuf[size-1]);
-			ifnum = *(int*)(&rcvbuf[0]);
-			mode = *(int*)(&rcvbuf[4]);
-		}
-		if(size==-1) {
-			printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
-			break;		
-		}
-		if(ifnum>0 && mode>0){
-			if(mode<10){
-				if(targs[ifnum].id!=ifnum){
-					start_thread(g, ifnum, mode);
-					global_nthreads++;
-				}
-				else{
-					set_mode(ifnum, mode);
-				}
-			}
-			if(mode>=10){
-				set_attach(ifnum, mode-10);
-			}
-		}
-
-		// close threads if necessary
-		j = 0;
-		for(i=0;i<global_nthreads;i++){
-			if(targs[i].cancel){
-				j++;
-				pthread_join(targs[i].thread,NULL);
-				munmap(targs[i].nmd->mem, targs[i].nmd->req.nr_memsize);
-				close(targs[i].fd);
-			}
-		}
-		if(j==global_nthreads){
-			break;
-		}
-		sleep(2);
-	}
-	unix_socket_close(connfd);
-}
-
 
 // the max connection number of the server
 #define MAX_CONNECTION_NUMBER 1
@@ -433,6 +365,74 @@ unix_socket_accept(int listenfd, uid_t *uidptr){
 void  
 unix_socket_close(int fd){
 	close(fd);     
+}
+
+static void
+main_thread(struct glob_arg *g){
+	int i, j;
+	int ifnum, mode;
+	int listenfd,connfd; 
+	listenfd = unix_socket_listen("pbs.buffer1");
+	if(listenfd<0){
+		printf("Error[%d] when listening...\n",errno);
+		return 0;
+	}
+	printf("Finished listening...\n",errno);
+	uid_t uid;
+	connfd = unix_socket_accept(listenfd, &uid);
+	unix_socket_close(listenfd);  
+	if(connfd<0){
+		printf("Error[%d] when accepting...\n",errno);
+		return 0;
+	}  
+	printf("Begin to recv/send...\n");
+	int i,n,size;
+	int ifnum, mode;
+	char rcvbuf[8];
+
+	for(;;){
+		size = recv(connfd, rcvbuf, 8, 0);   
+		if(size>=0){
+		// rvbuf[size]='\0';
+			printf("Received Data[%d]:%c...%c\n",size,rcvbuf[0],rcvbuf[size-1]);
+			ifnum = *(int*)(&rcvbuf[0]);
+			mode = *(int*)(&rcvbuf[4]);
+		}
+		if(size==-1) {
+			printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
+			break;		
+		}
+		if(ifnum>0 && mode>0){
+			if(mode<10){
+				if(targs[ifnum].id!=ifnum){
+					start_thread(g, ifnum, mode);
+					global_nthreads++;
+				}
+				else{
+					set_mode(ifnum, mode);
+				}
+			}
+			if(mode>=10){
+				set_attach(ifnum, mode-10);
+			}
+		}
+
+		// close threads if necessary
+		j = 0;
+		for(i=0;i<global_nthreads;i++){
+			if(targs[i].cancel){
+				j++;
+				pthread_join(targs[i].thread,NULL);
+				munmap(targs[i].nmd->mem, targs[i].nmd->req.nr_memsize);
+				close(targs[i].fd);
+			}
+		}
+		if(j==global_nthreads){
+			break;
+		}
+		sleep(2);
+	}
+	unix_socket_close(connfd);
 }
 
 int
