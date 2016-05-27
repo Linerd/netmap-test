@@ -7,6 +7,9 @@
 #include <string.h>
 #include <sys/types.h> 
 #include <unistd.h>
+#include <stdlib.h>
+#include <time.h>
+
 /* Create a client endpoint and connect to a server.   Returns fd if all OK, <0 on error. */
 int
 unix_socket_conn(const char *servername){
