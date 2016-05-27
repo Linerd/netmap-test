@@ -330,8 +330,9 @@ unix_socket_listen(const char *servername){
 
 int
 unix_socket_accept(int listenfd, uid_t *uidptr){
-	int clifd, len, rval; 
-	time_t staletime; 
+	int clifd, rval; 
+	socklen_t len;
+	//time_t staletime; 
 	struct sockaddr_un un;
 	struct stat statbuf; 
 	len = sizeof(un); 
