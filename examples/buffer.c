@@ -240,7 +240,7 @@ receiver_body(void *data)
 	return (NULL);
 }
 
-static int
+static void
 start_thread(struct glob_arg *g, int ifnum, int mode){
 
 	struct targ *t = &targs[ifnum];
@@ -255,7 +255,7 @@ start_thread(struct glob_arg *g, int ifnum, int mode){
 
 	if(nmd == NULL){
 		D("Unable to open %s: %s", ifname, strerror(errno));
-		return -1;
+		return;
 	}
 
 	t->nmd = nmd;
@@ -273,6 +273,7 @@ start_thread(struct glob_arg *g, int ifnum, int mode){
 			D("Unable to create thread %d: %s", i, strerror(errno));
 		}
 	}
+	return;
 }
 
 static void
