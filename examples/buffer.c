@@ -253,7 +253,7 @@ start_thread(struct glob_arg *g, int ifnum, int mode){
 	struct nm_desc *nmd = nm_open(ifname, &nmr, 0, NULL);
 
 	if(nmd == NULL){
-		D("Unable to open %s: %s", ifname[i], strerror(errno));
+		D("Unable to open %s: %s", ifname, strerror(errno));
 		return -1;
 	}
 
