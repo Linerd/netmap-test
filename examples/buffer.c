@@ -246,7 +246,8 @@ start_thread(struct glob_arg *g, int ifnum, int mode){
 	struct targ *t = &targs[ifnum];
 	char ifname[20];
 	struct nmreq nmr;
-	t->g = &g;
+	int i;
+	t->g = g;
 	bzero(&nmr, sizeof(nmr));
 
 	sprintf(ifname, "netmap:eth%d", ifnum);
@@ -276,7 +277,6 @@ start_thread(struct glob_arg *g, int ifnum, int mode){
 
 static void
 set_mode(int ifnum, int mode){
-	int i;
 	targs[ifnum].mode = mode;
 }
 
@@ -328,7 +328,7 @@ main_thread(struct glob_arg *g){
 int
 main(int arc, char **argv){
 	
-	int i;//,j;
+	//int i;//,j;
 	int ch;
 	struct glob_arg g;
 	g.burst = 512;
