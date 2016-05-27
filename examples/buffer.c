@@ -375,9 +375,9 @@ main_thread(struct glob_arg *g){
 	listenfd = unix_socket_listen("pbs.buffer1");
 	if(listenfd<0){
 		printf("Error[%d] when listening...\n",errno);
-		return 0;
+		return;
 	}
-	printf("Finished listening...\n",errno);
+	printf("Finished listening...\n");
 	uid_t uid;
 	connfd = unix_socket_accept(listenfd, &uid);
 	unix_socket_close(listenfd);  
