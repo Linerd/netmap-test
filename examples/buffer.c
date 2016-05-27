@@ -371,7 +371,7 @@ unix_socket_close(int fd){
 static void
 main_thread(struct glob_arg *g){
 	int i, j;
-	int ifnum, mode;
+	int ifnum, mode=-1;
 	int listenfd,connfd; 
 	listenfd = unix_socket_listen("pbs.buffer1");
 	if(listenfd<0){
