@@ -1,6 +1,6 @@
 # For multiple programs using a single source file each,
 # we can just define 'progs' and create custom targets.
-PROGS	=  pkt-gen bridge bridge-b vale-ctl buffer
+PROGS	=  pkt-gen bridge bridge-b vale-ctl buffer agent
 PROGS	+= test_select testmmap
 X86PROG = testlock testcsum
 LIBNETMAP =
@@ -42,6 +42,12 @@ buffer: buffer.o
 
 buffer.o: buffer.c
 	$(CC) $(CFLAGS) -DBUSYWAIT -c $^  -o $@
+
+agent: agent.o
+
+agent.o: agent.c
+	$(CC) $(CFLAGS) -DBUSYWAIT -c $^  -o $@
+
 
 pkt-gen-b: pkt-gen-b.o
 
