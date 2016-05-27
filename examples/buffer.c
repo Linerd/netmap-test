@@ -4,6 +4,10 @@
 #include <sys/poll.h>
 #include <pthread.h>
 
+#define RECEIVE_MODE 1;
+#define SEND_MODE 2;
+#define RELAY_MODE 3;
+
 /*
  * packet buffer node in FIFO queue
  */
@@ -23,6 +27,7 @@ struct glob_arg {
 struct targ{
 	struct glob_arg *g;
 	int attached;
+	int cancel;
 	int id;
 	int fd;
 
@@ -40,7 +45,7 @@ struct targ{
 };
 
 
-static struct targ *targs;
+static struct targ targs[1000];
 static int global_nthreads;
 
 
@@ -53,6 +58,7 @@ sigint_h(int sig)
 	(void)sig;	/* UNUSED */
 	D("received control-C on thread %p", (void *)pthread_self());
 	for (i = 0; i < global_nthreads; i++) {
+		targs[i].cancel = 0;
 		targs[i].attached = 0;
 	}
 	signal(SIGINT, SIG_DFL);
@@ -109,11 +115,13 @@ sender_body(void *data)
 
 	/* main loop.*/
 	nifp = targ->nmd->nifp;
-	while (targ->attached>0) {
 
-	/*
-	 * wait for available room in the send queue(s)
-	 */
+	while(!targ->cancel){
+
+		while(!targ->attached||targ->mode==RECEIVE_MODE){};
+		/*
+		 * wait for available room in the send queue(s)
+		 */
 		if (poll(&pfd, 1, 2000) <= 0)
 			continue;
 		if (pfd.revents & POLLERR) {
@@ -136,9 +144,9 @@ sender_body(void *data)
 		}
 		if(m){
 			/* flush any remaining packets */
-			D("flush tail %d head %d on thread %p",
-				txring->tail, txring->head,
-				(void *)pthread_self());
+			//D("flush tail %d head %d on thread %p",
+				//txring->tail, txring->head,
+				//(void *)pthread_self());
 			ioctl(pfd.fd, NIOCTXSYNC, NULL);
 
 			/* final part: wait all the TX queues to be empty. */
@@ -201,18 +209,12 @@ receiver_body(void *data)
 
 	D("reading from %s",
 		targ->ifname);
-	/* unbounded wait for the first packet. */
-	for (;targ->attached;) {
-		i = poll(&pfd, 1, 1000);
-		if (i > 0 && !(pfd.revents & POLLERR))
-			break;
-		RD(1, "waiting for initial packets, poll returns %d %d",
-			i, pfd.revents);
-	}
-	/* main loop, exit after 1s silence */
-	nifp = targ->nmd->nifp;
 
-	while (targ->attached) {
+	while(!targ->cancel){
+
+		while(!targ->attached||targ->mode==SEND_MODE){};
+
+		nifp = targ->nmd->nifp;
 
 		if( poll(&pfd, 1, 1000) <=0)
 			continue;
@@ -232,105 +234,83 @@ receiver_body(void *data)
 			receive_packets(rxring, targ->g->burst, &(targ->g->head), &(targ->g->tail));
 			pthread_rwlock_unlock(&(targ->g->rwlock)); 
 		}
+		ioctl(pfd.fd, NIOCRXSYNC, NULL);
     }
 
 	return (NULL);
 }
 
-// static void
-// start_thread(struct glob_arg *g)
-// {
-// 	int i;
+static int
+start_thread(struct glob_arg *g, int ifnum, int mode){
 
-// 	struct targ t;
-// 	struct nmreq nmr;
+	struct targ *t = &targs[ifnum];
+	char ifname[20];
+	struct nmreq nmr;
+	t->g = &g;
+	bzero(&nmr, sizeof(nmr));
 
-// 	bzero(&t, sizeof(t));
-// 	t->fd = -1;
-// 	t->g = g;
+	sprintf(ifname, "netmap:eth%d", ifnum);
+	struct nm_desc *nmd = nm_open(ifname, &nmr, 0, NULL);
 
+	if(nmd == NULL){
+		D("Unable to open %s: %s", ifname[i], strerror(errno));
+		return -1;
+	}
 
-// 	bzero(&nmr, sizeof(nmr));
+	t->nmd = nmd;
+	t->fd = t->nmd->fd;
+	strcpy(t->ifname, ifname);
+	nmd->self = nmd;
+	t->id = ifnum;
+	t->mode = mode;
+	D("Wait %d secs for phy reset", 2);
+	sleep(2);
+	D("If %d is Ready... Mode: %d", ifnum, mode);
 
-// 	nmr.nr_flags |= NR_ACCEPT_VNET_HRD;
-
-// 	struct nm_desc nmd = nm_open(ifname, &nmr, 0, NULL);
-// 	nmd.self = &nmd;	
-// 	if(nmd == NULL){
-// 		D("Unable to open %s: %s", ifname, strerror(errno));
-// 		exit(0);
-// 	}
-// 	/*
-// 	 * Now create the desired number of threads, each one
-// 	 * using a single descriptor.
-//  	 */
-// 	for (i = 0; i < g->nthreads; i++) {
-// 		struct targ *t = &targs[i];
-
-// 		bzero(t, sizeof(*t));
-// 		t->fd = -1; /* default, with pcap */
-// 		t->g = g;
-
-// 	    if (g->dev_type == DEV_NETMAP) {
-// 		struct nm_desc nmd = *g->nmd; /* copy, we overwrite ringid */
-// 		uint64_t nmd_flags = 0;
-// 		nmd.self = &nmd;
-
-// 		if (i > 0) {
-// 			/* the first thread uses the fd opened by the main
-// 			 * thread, the other threads re-open /dev/netmap
-// 			 */
-// 			if (g->nthreads > 1) {
-// 				nmd.req.nr_flags =
-// 					g->nmd->req.nr_flags & ~NR_REG_MASK;
-// 				nmd.req.nr_flags |= NR_REG_ONE_NIC;
-// 				nmd.req.nr_ringid = i;
-// 			}
-// 			/* Only touch one of the rings (rx is already ok) */
-// 			//if (g->td_type == TD_TYPE_RECEIVER)
-// 				// nmd_flags |= NETMAP_NO_TX_POLL;
-
-// 			/* register interface. Override ifname and ringid etc. */
-// 			t->nmd = nm_open(t->g->ifname, NULL, nmd_flags |
-// 				NM_OPEN_IFNAME | NM_OPEN_NO_MMAP, &nmd);
-// 			if (t->nmd == NULL) {
-// 				D("Unable to open %s: %s",
-// 					t->g->ifname, strerror(errno));
-// 				continue;
-// 			}
-// 		} else {
-// 			t->nmd = g->nmd;
-// 		}
-// 		t->fd = t->nmd->fd;
-
-// 	    } else {
-// 			targs[i].fd = g->main_fd;
-// 	    }
-// 		t->used = 1;
-// 		t->me = i;
-// 		if (g->affinity >= 0) {
-// 			t->affinity = (g->affinity + i) % g->system_cpus;
-// 		} else {
-// 			t->affinity = -1;
-// 		}
-// 		/* default, init packets */
-// 		// initialize_packet(t);
-
-// 		if (pthread_create(&t->thread, NULL, g->td_body, t) == -1) {
-// 			D("Unable to create thread %d: %s", i, strerror(errno));
-// 			t->used = 0;
-// 		}
-// 	}
-// }
+	for(i=0;i<2;i++){
+		if(pthread_create(&t->thread, NULL, i==0?receiver_body:sender_body, t) == -1){
+			D("Unable to create thread %d: %s", i, strerror(errno));
+		}
+	}
+}
 
 static void
-main_thread(){
+set_mode(int ifnum, int mode){
+	int i;
+	targs[ifnum].mode = mode;
+}
+
+static void
+set_attach(int ifnum, int attach){
+	targs[ifnum].attached = attach;
+}
+
+static void
+main_thread(struct glob_arg *g){
 	int i, j;
+	int ifnum, mode;
 	for(;;){
-		//D("Mainthread looping...");
+		// take user input here
+		printf("Enter the interface number and opt_code here: ");
+		scanf(" %d %d",&ifnum, &mode);
+		if(ifnum>0 && mode>0){
+			if(mode<10){
+				if(targs[ifnum].id!=ifnum){
+					start_thread(g, ifnum, mode);
+				}
+				else{
+					set_mode(ifnum, mode);
+				}
+			}
+			if(mode>=10){
+				set_attach(ifnum, mode-10);
+			}
+		}
+
+		// close threads if necessary
 		j = 0;
 		for(i=0;i<global_nthreads;i++){
-			if(targs[i].attached!=1){
+			if(targs[i].cancel){
 				j++;
 				pthread_join(targs[i].thread,NULL);
 				munmap(targs[i].nmd->mem, targs[i].nmd->req.nr_memsize);
@@ -352,11 +332,11 @@ main(int arc, char **argv){
 	int ch;
 	struct glob_arg g;
 	g.burst = 512;
-	char ifname[2][20];
 
 	while ( ( ch = getopt(arc, argv, 
-		"i:I:b") ) != -1) {
+		"b") ) != -1) {
 		switch(ch) {
+			/*
 			case 'i':
 				D("interface1 is %s", optarg);
 				sprintf(ifname[0], "netmap:%s", optarg );
@@ -365,12 +345,15 @@ main(int arc, char **argv){
 				D("interface2 is %s", optarg);
 				sprintf(ifname[1], "netmap:%s", optarg );
 				break;
+				*/
 			case 'b':
 				g.burst = atoi(optarg);
 				break;
+			default:
+				break;
 		}
 	}
-	global_nthreads = 2;
+	//global_nthreads = 2;
 
 	pkt_list_node_t *head = NULL;
 	g.tail = g.head = head;
@@ -382,50 +365,8 @@ main(int arc, char **argv){
 	}
 
 	g.rwlock = rwlock;
-
-	targs = calloc(2, sizeof(*targs));
-
 	signal(SIGINT, sigint_h);
 
-	// struct nmreq base_nmd;
-
-	// bzero(&base_nmd, sizeof(base_nmd));
-
-	// base_nmd.nr_flags |=NR_ACCEPT_VNET_HRD;
-
-	// struct nm_desc nmd = nm_open()
-
-	for(i=0;i<global_nthreads;i++){
-		struct targ *t = &targs[i];
-		bzero(t, sizeof(*t));
-		t->g = &g;
-		t->attached = 1;
-
-		struct nmreq nmr;
-
-		bzero(&nmr, sizeof(nmr));
-
-		//nmr.nr_flags |= NR_ACCEPT_VNET_HRD;
-
-		struct nm_desc *nmd = nm_open(ifname[i], &nmr, 0, NULL);
-		if(nmd == NULL){
-			D("Unable to open %s: %s", ifname[i], strerror(errno));
-			exit(0);
-		}
-		t->nmd = nmd;
-		t->fd = t->nmd->fd;
-		strcpy(t->ifname, ifname[i]);
-		nmd->self = nmd;
-		t->id = i;
-
-		D("Wait %d secs for phy reset", 2);
-		sleep(2);
-		D("Ready...");
-
-		if(pthread_create(&t->thread, NULL, i==0?receiver_body:sender_body, t) == -1){
-			D("Unable to create thread %d: %s", i, strerror(errno));
-		}
-	}
 	main_thread(&g);
 	pthread_rwlock_destroy(&(g.rwlock));	
 	return 0;
