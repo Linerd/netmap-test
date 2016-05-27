@@ -4,9 +4,9 @@
 #include <sys/poll.h>
 #include <pthread.h>
 
-#define RECEIVE_MODE 1;
-#define SEND_MODE 2;
-#define RELAY_MODE 3;
+#define RECEIVE_MODE 1
+#define SEND_MODE 2
+#define RELAY_MODE 3
 
 /*
  * packet buffer node in FIFO queue
