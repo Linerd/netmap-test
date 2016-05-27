@@ -52,19 +52,25 @@ int
 main(void){
     srand((int)time(0));
     int connfd; 
-    connfd = unix_socket_conn("foo.sock");
+    connfd = unix_socket_conn("pbs.buffer1");
     if(connfd<0){
         printf("Error[%d] when connecting...",errno);
     	  return 0;
     }
-    printf("Begin to recv/send...\n");  
-    int i,n,size;
-    char rvbuf[4096];
-    for(i=0;i<10;i++){
+    printf("Begin to recv/send...\n");
+    int size;
+    char sndbuf[8];
+    int ifnum, mode;
+    for(;;){
         //=========sending======================
-        memset(rvbuf,'a',2048);
-        rvbuf[2047]='b';
-        size = send(connfd, rvbuf, 2048, 0);
+        printf("Enter the interface and mode here: ");
+        if(scanf("%d %d",&ifnum, &mode)<0){
+            printf("Scanf error");
+            return 0;
+        }
+        getchar();
+        sprintf(sndbuf,'%d%d',ifnum, mode);
+        size = send(connfd, sndbuf, 8, 0);
       	if(size>=0){
     		    printf("Data[%d] Sended:%c.\n",size,rvbuf[0]);
       	}
@@ -75,6 +81,6 @@ main(void){
         sleep(1);
     }
     unix_socket_close(connfd);
-    printf("Client exited.\n");
+    printf("Agent exited.\n");
     return 0;
 }
