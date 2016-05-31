@@ -1,6 +1,6 @@
 # For multiple programs using a single source file each,
 # we can just define 'progs' and create custom targets.
-PROGS	=	pkt-gen bridge vale-ctl pkt-gen-b bridge-b buffer
+PROGS	= 	pkt-gen bridge vale-ctl pkt-gen-b bridge-b buffer agent
 #PROGS += pingd
 PROGS	+= testlock test_select testmmap vale-ctl
 MORE_PROGS = kern_test
@@ -30,6 +30,12 @@ buffer: buffer.o
 
 buffer.o: buffer.c
 	$(CC) $(CFLAGS) -DBUSYWAIT -c buffer.c -o buffer.o
+
+agent: agent.o
+	$(CC) $(CFLAGS) -o agent agent.o $(LDFLAGS)
+
+agent.o: agent.c
+	$(CC) $(CFLAGS) -DBUSYWAIT -c agent.c -o agent.o
 
 pkt-gen: pkt-gen.o
 	$(CC) $(CFLAGS) -o pkt-gen pkt-gen.o $(LDFLAGS)
