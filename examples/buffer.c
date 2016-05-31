@@ -124,8 +124,8 @@ sender_body(void *data)
 	while(!targ->cancel){
 
 		while(!targ->attached||targ->mode==RECEIVE_MODE){
-			D("Not attached or in RECEIVE_MODE, waiting...");
-			sleep(2);
+			//D("Not attached or in RECEIVE_MODE, waiting...");
+			sleep(1);
 		};
 		/*
 		 * wait for available room in the send queue(s)
@@ -221,8 +221,8 @@ receiver_body(void *data)
 	while(!targ->cancel){
 
 		while(!targ->attached||targ->mode==SEND_MODE){
-			D("Not attached or in SEND_MODE, waiting...");
-			sleep(2);
+			//D("Not attached or in SEND_MODE, waiting...");
+			sleep(1);
 		};
 
 		nifp = targ->nmd->nifp;
