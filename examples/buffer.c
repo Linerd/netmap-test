@@ -404,7 +404,7 @@ main_thread(struct glob_arg *g){
 		}
 		if(ifnum>=0 && mode>0){
 			if(mode<10){
-				if(targs[ifnum].id!=ifnum){
+				if(!targs[ifnum].fd){
 					start_thread(g, ifnum, mode);
 					if(global_nthreads)
 						global_nthreads++;
