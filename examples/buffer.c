@@ -123,7 +123,10 @@ sender_body(void *data)
 
 	while(!targ->cancel){
 
-		while(!targ->attached||targ->mode==RECEIVE_MODE){};
+		while(!targ->attached||targ->mode==RECEIVE_MODE){
+			D("Not attached or in RECEIVE_MODE, waiting...");
+			sleep(2);
+		};
 		/*
 		 * wait for available room in the send queue(s)
 		 */
@@ -217,7 +220,10 @@ receiver_body(void *data)
 
 	while(!targ->cancel){
 
-		while(!targ->attached||targ->mode==SEND_MODE){};
+		while(!targ->attached||targ->mode==SEND_MODE){
+			D("Not attached or in SEND_MODE, waiting...");
+			sleep(2);
+		};
 
 		nifp = targ->nmd->nifp;
 
@@ -402,7 +408,7 @@ main_thread(struct glob_arg *g){
 			ifnum = rcvbuf[0];
 			mode = rcvbuf[1];
 		}
-		if(size==-1) {
+		else if(size==-1) {
 			if ((errno == EAGAIN) || (errno == EWOULDBLOCK)){
 				sleep(2);
 				continue;
