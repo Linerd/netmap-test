@@ -403,11 +403,12 @@ main_thread(struct glob_arg *g){
 			mode = rcvbuf[1];
 		}
 		if(size==-1) {
-			printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
 			if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
 				continue;
-			else
+			else{
+				printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
 				break;
+			}
 		}
 		if(ifnum>=0 && mode>0){
 			if(mode<10){
