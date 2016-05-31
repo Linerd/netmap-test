@@ -391,6 +391,8 @@ main_thread(struct glob_arg *g){
 	int rcvbuf[2];
 
 	for(;;){
+		ifnum=-1;
+		mode=-1;
 		size = recv(connfd, (char*)rcvbuf, 8, 0);   
 		if(size>=0){
 		// rvbuf[size]='\0';
