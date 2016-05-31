@@ -403,8 +403,10 @@ main_thread(struct glob_arg *g){
 			mode = rcvbuf[1];
 		}
 		if(size==-1) {
-			if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+			if ((errno == EAGAIN) || (errno == EWOULDBLOCK)){
+				sleep(2);
 				continue;
+			}
 			else{
 				printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
 				break;
