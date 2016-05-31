@@ -74,7 +74,7 @@ main(void){
         getchar();
         size = send(connfd, (char*)sndbuf, 8, 0);
       	if(size>=0){
-    		    printf("Data[%d] Sended:%c.\n",size,sndbuf[0]);
+    		    printf("Data[%d] Sended:%d %d.\n",size,sndbuf[0],sndbuf[1]);
       	}
     	  if(size==-1){
     	      printf("Error[%d] when Sending Data:%s.\n",errno,strerror(errno));	 

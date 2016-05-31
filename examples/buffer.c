@@ -402,11 +402,14 @@ main_thread(struct glob_arg *g){
 			printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
 			break;		
 		}
-		if(ifnum>0 && mode>0){
+		if(ifnum>=0 && mode>0){
 			if(mode<10){
 				if(targs[ifnum].id!=ifnum){
 					start_thread(g, ifnum, mode);
-					global_nthreads++;
+					if(global_nthreads)
+						global_nthreads++;
+					else
+						global_nthreads=1;
 				}
 				else{
 					set_mode(ifnum, mode);
@@ -463,7 +466,7 @@ main(int arc, char **argv){
 				break;
 		}
 	}
-	//global_nthreads = 2;
+	global_nthreads = -1;
 
 	pkt_list_node_t *head = NULL;
 	g.tail = g.head = head;
