@@ -278,7 +278,6 @@ start_thread(struct glob_arg *g, int ifnum, int mode){
 			D("Unable to create thread %d: %s", i, strerror(errno));
 		}
 	}
-	return;
 }
 
 static void
@@ -408,7 +407,7 @@ main_thread(struct glob_arg *g){
 			if(mode<10){
 				if(!targs[ifnum].fd){
 					start_thread(g, ifnum, mode);
-					if(global_nthreads)
+					if(global_nthreads>0)
 						global_nthreads++;
 					else
 						global_nthreads=1;
