@@ -404,7 +404,10 @@ main_thread(struct glob_arg *g){
 		}
 		if(size==-1) {
 			printf("Error[%d] when receiving Data:%s.\n",errno,strerror(errno));	 
-			break;		
+			if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+				continue;
+			else
+				break;
 		}
 		if(ifnum>=0 && mode>0){
 			if(mode<10){
