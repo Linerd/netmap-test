@@ -388,7 +388,10 @@ main_thread(struct glob_arg *g){
 	printf("Begin to recv/send...\n");
 	int size;
 	int rcvbuf[2];
-
+	if(fcntl(connfd, F_SETFL, fcntl(connfd, F_GETFL) | O_NONBLOCK) < 0) {
+		printf("Set nonblock error");
+		return;
+	}
 	for(;;){
 		ifnum=-1;
 		mode=-1;
